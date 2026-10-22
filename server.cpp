@@ -251,6 +251,7 @@ int main(int argc, char *argv[]) {
 
       bool send_state = false;
       std::string msg;
+      std::string output;
       switch (game->state) {
       case GS_NAMING:
         if (game->startTime == 0 && game->name == "") {
@@ -263,18 +264,23 @@ int main(int argc, char *argv[]) {
           game->name = game->input_buffer;
           game->name.pop_back();
           memset(game->input_buffer, 0, sizeof(game->input_buffer));
+          if (scoreboard.find(game->name) != scoreboard.end()) {
+            game->state = GS_SHOW_RESULTS;
+            output = "Você já jogou esse labirinto! Aguarde a hora virar para "
+                     "um novo labirinto!\n";
+            send(it->fd, output.c_str(), output.length(), 0);
+            break;
+          }
           game->startTime = 0;
           game->state = GS_PLAYING;
           msg = "Bem vindo " + game->name +
                 "! Digite WASD para explorar o labirinto!\n";
           send(it->fd, msg.c_str(), msg.length(), 0);
-          std::cout << "Jogo de " << it->fd << " entrou em GS_PLAYING!\n";
         }
         break;
       case GS_PLAYING:
         if (game->startTime == 0) {
           game->startTime = time(NULL);
-
           send_state = true;
         }
 
@@ -296,7 +302,6 @@ int main(int argc, char *argv[]) {
                 current_board[game->pos.x + 1 +
                               current_boardsize.x * game->pos.y] != '#') {
               game->pos.x++;
-
               send_state = true;
             }
             break;
@@ -306,7 +311,6 @@ int main(int argc, char *argv[]) {
                 current_board[game->pos.x +
                               current_boardsize.x * (game->pos.y + 1)] != '#') {
               game->pos.y++;
-
               send_state = true;
             }
             break;
@@ -316,12 +320,20 @@ int main(int argc, char *argv[]) {
                 current_board[game->pos.x +
                               current_boardsize.x * (game->pos.y - 1)] != '#') {
               game->pos.y--;
-
               send_state = true;
             }
             break;
           }
           send_state = true;
+
+          if (game->pos.x == current_boardsize.x - 2 &&
+              game->pos.y == current_boardsize.y - 2) {
+            time_t current_time = time(NULL);
+            time_t elapsed_seconds = current_time - game->startTime;
+            scoreboard.insert({game->name, elapsed_seconds});
+            send_state = false;
+            game->state = GS_SHOW_RESULTS;
+          }
         }
 
         if (send_state) {
@@ -329,11 +341,6 @@ int main(int argc, char *argv[]) {
           time_t elapsed_seconds = current_time - game->startTime;
           std::string output =
               "\n--- TEMPO: " + std::to_string(elapsed_seconds) + "s ---\n";
-
-          for (int x = 0; x < current_boardsize.x + 1; ++x) {
-            output += '#';
-          }
-          output += '\n';
 
           for (int y = 0; y < current_boardsize.y; ++y) {
             output += '#';
@@ -346,20 +353,31 @@ int main(int argc, char *argv[]) {
             }
             output += "#\n";
           }
-          for (int x = 0; x < current_boardsize.x + 1; ++x) {
-            output += '#';
-          }
-          output += '\n';
+
           send(it->fd, output.data(), output.length(), 0);
         }
         break;
-      case GS_SHOW_RESULTS:
+      case GS_SHOW_RESULTS: {
+        output = "RANKING:\n";
+
+        std::vector<std::pair<std::string, time_t>> sorted_scoreboard(
+            scoreboard.begin(), scoreboard.end());
+
+        std::sort(
+            sorted_scoreboard.begin(), sorted_scoreboard.end(),
+            [](const auto &a, const auto &b) { return a.second < b.second; });
+
+        for (const auto &v : sorted_scoreboard) {
+          output += v.first + " : " + std::to_string(v.second) + "s\n";
+        }
+
+        send(it->fd, output.data(), output.length(), 0);
+        game->state = GS_END;
         break;
+      }
       case GS_END:
-        time_t end_time = time(NULL);
-        time_t delta = end_time - games[it->fd]->startTime;
-        scoreboard.insert({games[it->fd]->name, delta});
         close(it->fd);
+        std::cout << "Cliente desconectado!\n";
         it = fds.erase(it) - 1;
         break;
       }
