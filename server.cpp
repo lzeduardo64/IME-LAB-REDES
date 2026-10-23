@@ -36,7 +36,7 @@ std::map<std::string, time_t> scoreboard;
 std::map<int, std::unique_ptr<Game>> games;
 std::vector<struct pollfd> fds;
 time_t currentTimestamp = 0;
-int last_update;
+time_t last_update;
 
 std::vector<char> current_board;
 Vec2D current_startpos = {0, 0};
@@ -88,7 +88,7 @@ void update_board() {
   unvisited_cells.pop_back();
 
   in_maze[get_index(first.x, first.y)] = true;
-  current_board[get_index(first.x, first.y)] = '.';
+  current_board[get_index(first.x, first.y)] = ' ';
 
   int dx[] = {0, 0, 2, -2};
   int dy[] = {-2, 2, 0, 0};
@@ -139,7 +139,7 @@ void update_board() {
       int idx = get_index(cell.x, cell.y);
 
       in_maze[idx] = true;
-      current_board[idx] = '.';
+      current_board[idx] = ' ';
 
       // Remove da lista de não visitadas
       unvisited_cells.erase(
@@ -153,7 +153,7 @@ void update_board() {
         Vec2D next_cell = walk[i + 1];
         int wx = (cell.x + next_cell.x) / 2;
         int wy = (cell.y + next_cell.y) / 2;
-        current_board[get_index(wx, wy)] = '.';
+        current_board[get_index(wx, wy)] = ' ';
       }
     }
   }
@@ -203,10 +203,10 @@ int main(int argc, char *argv[]) {
 
     // atualizar o relogio do servidor
     time(&currentTimestamp);
-    struct tm datetime = *localtime(&currentTimestamp);
-    if (datetime.tm_hour != last_update) {
+    if (currentTimestamp - last_update >= 1 * 60) {
       update_board();
-      last_update = datetime.tm_hour;
+      last_update = currentTimestamp;
+      scoreboard.clear();
       newBoard = true;
     }
 
@@ -256,13 +256,14 @@ int main(int argc, char *argv[]) {
       case GS_NAMING:
         if (game->startTime == 0 && game->name == "") {
           msg = "Digite o seu nome: ";
-          send(it->fd, msg.c_str(), msg.size(), 0);
+          send(it->fd, msg.c_str(), msg.length(), 0);
           game->startTime = time(NULL);
         }
 
         if (n_recv != 0) {
           game->name = game->input_buffer;
           game->name.pop_back();
+          std::cout << "Nome recebido: " << game->name << std::endl;
           memset(game->input_buffer, 0, sizeof(game->input_buffer));
           if (scoreboard.find(game->name) != scoreboard.end()) {
             game->state = GS_SHOW_RESULTS;
@@ -277,8 +278,16 @@ int main(int argc, char *argv[]) {
                 "! Digite WASD para explorar o labirinto!\n";
           send(it->fd, msg.c_str(), msg.length(), 0);
         }
+
         break;
       case GS_PLAYING:
+        if (newBoard) {
+          output = "O labirinto atualizou!\n";
+          game->state = GS_END;
+          send(it->fd, output.data(), output.length(), 0);
+          break;
+        }
+
         if (game->startTime == 0) {
           game->startTime = time(NULL);
           send_state = true;
@@ -343,7 +352,6 @@ int main(int argc, char *argv[]) {
               "\n--- TEMPO: " + std::to_string(elapsed_seconds) + "s ---\n";
 
           for (int y = 0; y < current_boardsize.y; ++y) {
-            output += '#';
             for (int x = 0; x < current_boardsize.x; ++x) {
               if (game->pos.x == x && game->pos.y == y) {
                 output += 'P';
@@ -351,7 +359,7 @@ int main(int argc, char *argv[]) {
                 output += current_board[y * current_boardsize.x + x];
               }
             }
-            output += "#\n";
+            output += "\n";
           }
 
           send(it->fd, output.data(), output.length(), 0);
@@ -377,6 +385,7 @@ int main(int argc, char *argv[]) {
       }
       case GS_END:
         close(it->fd);
+        games.erase(it->fd);
         std::cout << "Cliente desconectado!\n";
         it = fds.erase(it) - 1;
         break;
