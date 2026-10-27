@@ -304,8 +304,7 @@ int main(int argc, char *argv[]) {
           memset(game->input_buffer, 0, sizeof(game->input_buffer));
           if (scoreboard.find(game->name) != scoreboard.end()) {
             game->state = GS_SHOW_RESULTS;
-            output = "Você já jogou esse labirinto! Aguarde a hora virar para "
-                     "um novo labirinto!\n";
+            output = "Você já jogou esse labirinto! Aguarde o novo labirinto!\n";
             send(it->fd, output.c_str(), output.length(), 0);
             break;
           }
