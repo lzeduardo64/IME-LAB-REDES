@@ -36,7 +36,7 @@ std::map<std::string, time_t> scoreboard;
 std::map<int, std::unique_ptr<Game>> games;
 std::vector<struct pollfd> fds;
 time_t currentTimestamp = 0;
-time_t last_update;
+time_t last_update = 0;
 
 std::vector<char> current_board;
 Vec2D current_startpos = {0, 0};
@@ -169,6 +169,27 @@ void update_board() {
             << std::endl;
 }
 
+std::string get_ranking_string() {
+  std::string output = "RANKING:\n";
+  if (scoreboard.empty()) {
+    output += "(Nenhum jogador completou este labirinto)\n";
+    return output;
+  }
+
+  std::vector<std::pair<std::string, time_t>> sorted_scoreboard(
+      scoreboard.begin(), scoreboard.end());
+
+  std::sort(
+      sorted_scoreboard.begin(), sorted_scoreboard.end(),
+      [](const auto &a, const auto &b) { return a.second < b.second; });
+
+  for (const auto &v : sorted_scoreboard) {
+    output += v.first + " : " + std::to_string(v.second) + "s\n";
+  }
+
+  return output;
+}
+
 int main(int argc, char *argv[]) {
   int sockfd = socket(AF_INET, SOCK_STREAM, 0);
   if (sockfd == -1) {
@@ -198,16 +219,32 @@ int main(int argc, char *argv[]) {
   fds.push_back(svfd);
 
   while (1) {
-    // invalidar o tabuleiro antigo
-    bool newBoard = false;
-
     // atualizar o relogio do servidor
     time(&currentTimestamp);
     if (currentTimestamp - last_update >= 1 * 60) {
+      if (last_update != 0) {
+        std::string update_msg =
+            "\nO labirinto atualizou!\n" + get_ranking_string();
+        for (auto it = fds.begin() + 1; it != fds.end();) {
+          int cfd = it->fd;
+          if (games.count(cfd) &&
+              (games[cfd]->state == GS_PLAYING ||
+               games[cfd]->state == GS_SHOW_RESULTS)) {
+            send(cfd, update_msg.data(), update_msg.length(), 0);
+            close(cfd);
+            games.erase(cfd);
+            std::cout << "Cliente desconectado na troca de labirinto: " << cfd
+                      << std::endl;
+            it = fds.erase(it);
+          } else {
+            ++it;
+          }
+        }
+      }
+
       update_board();
       last_update = currentTimestamp;
       scoreboard.clear();
-      newBoard = true;
     }
 
     // iterar as sockets
@@ -281,13 +318,6 @@ int main(int argc, char *argv[]) {
 
         break;
       case GS_PLAYING:
-        if (newBoard) {
-          output = "O labirinto atualizou!\n";
-          game->state = GS_END;
-          send(it->fd, output.data(), output.length(), 0);
-          break;
-        }
-
         if (game->startTime == 0) {
           game->startTime = time(NULL);
           send_state = true;
@@ -366,19 +396,7 @@ int main(int argc, char *argv[]) {
         }
         break;
       case GS_SHOW_RESULTS: {
-        output = "RANKING:\n";
-
-        std::vector<std::pair<std::string, time_t>> sorted_scoreboard(
-            scoreboard.begin(), scoreboard.end());
-
-        std::sort(
-            sorted_scoreboard.begin(), sorted_scoreboard.end(),
-            [](const auto &a, const auto &b) { return a.second < b.second; });
-
-        for (const auto &v : sorted_scoreboard) {
-          output += v.first + " : " + std::to_string(v.second) + "s\n";
-        }
-
+        output = get_ranking_string();
         send(it->fd, output.data(), output.length(), 0);
         game->state = GS_END;
         break;
