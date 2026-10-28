@@ -179,9 +179,8 @@ std::string get_ranking_string() {
   std::vector<std::pair<std::string, time_t>> sorted_scoreboard(
       scoreboard.begin(), scoreboard.end());
 
-  std::sort(
-      sorted_scoreboard.begin(), sorted_scoreboard.end(),
-      [](const auto &a, const auto &b) { return a.second < b.second; });
+  std::sort(sorted_scoreboard.begin(), sorted_scoreboard.end(),
+            [](const auto &a, const auto &b) { return a.second < b.second; });
 
   for (const auto &v : sorted_scoreboard) {
     output += v.first + " : " + std::to_string(v.second) + "s\n";
@@ -227,9 +226,8 @@ int main(int argc, char *argv[]) {
             "\nO labirinto atualizou!\n" + get_ranking_string();
         for (auto it = fds.begin() + 1; it != fds.end();) {
           int cfd = it->fd;
-          if (games.count(cfd) &&
-              (games[cfd]->state == GS_PLAYING ||
-               games[cfd]->state == GS_SHOW_RESULTS)) {
+          if (games.count(cfd) && (games[cfd]->state == GS_PLAYING ||
+                                   games[cfd]->state == GS_SHOW_RESULTS)) {
             send(cfd, update_msg.data(), update_msg.length(), 0);
             close(cfd);
             games.erase(cfd);
@@ -304,7 +302,8 @@ int main(int argc, char *argv[]) {
           memset(game->input_buffer, 0, sizeof(game->input_buffer));
           if (scoreboard.find(game->name) != scoreboard.end()) {
             game->state = GS_SHOW_RESULTS;
-            output = "Você já jogou esse labirinto! Aguarde o novo labirinto!\n";
+            output =
+                "Você já jogou esse labirinto! Aguarde o novo labirinto!\n";
             send(it->fd, output.c_str(), output.length(), 0);
             break;
           }
@@ -361,6 +360,10 @@ int main(int argc, char *argv[]) {
               send_state = true;
             }
             break;
+          case 'Q':
+          case 'q':
+            game->state = GS_END;
+            break;
           }
           send_state = true;
 
@@ -374,7 +377,7 @@ int main(int argc, char *argv[]) {
           }
         }
 
-        if (send_state) {
+        if (send_state && game->state != GS_END) {
           time_t current_time = time(NULL);
           time_t elapsed_seconds = current_time - game->startTime;
           std::string output =
